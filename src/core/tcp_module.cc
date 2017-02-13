@@ -15,6 +15,7 @@
 
 #include "Minet.h"
 #include "tcpstate.h"
+#include "tcp.h"
 
 using std::cout;
 using std::endl;
@@ -22,7 +23,7 @@ using std::cerr;
 using std::string;
 
 
-Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned int &dataoffset, unsigned int &reserved, unsigned int &window, unsigned int &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
+Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned short &window, unsigned short &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
 
  // MakePacket constructs a packet, takes everything that goes into a packet as params.
 
@@ -109,14 +110,14 @@ int main(int argc, char *argv[])
 	unsigned int reserved = 0;
 	unsigned int &reservedp = reserved;
 
-	unsigned int window = 0;
-	unsigned int &windowp = window;
+	unsigned short window = 0;
+	unsigned short &windowp = window;
 
 	unsigned int checksum = 0;
 	unsigned int &checksump = checksum;
 
-	unsigned int urgentpointer = 0;
-	unsigned int &urgentpointerp = urgentpointer;
+	unsigned short urgentpointer = 0;
+	unsigned short &urgentpointerp = urgentpointer;
 
 	unsigned int options = 0;
 	unsigned int &optionsp = options;
@@ -127,7 +128,20 @@ int main(int argc, char *argv[])
 	unsigned int data = 0;
 	unsigned int &datap = data;
 
+	unsigned char orgflags= 0;
+	unsigned char &orgflagsp = orgflags;
+
+	unsigned char newflags= 0;
+	unsigned char &newflagsp = newflags;
+
+	unsigned char hlen= 0;
+	unsigned char &hlenp = hlen;
+
+	unsigned char upt = 0;
+	unsigned char &uptp = upt;
+
   while (MinetGetNextEvent(event)==0) {
+	newflags = 0;
     // if we received an unexpected type of event, print error
     if (event.eventtype!=MinetEvent::Dataflow 
 	|| event.direction!=MinetEvent::IN) {
@@ -144,42 +158,59 @@ int main(int argc, char *argv[])
         unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
         cerr << "estimated header len="<<tcphlen<<"\n";
         p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
- 	
-
 
         IPHeader ipl=p.FindHeader(Headers::IPHeader);
 	Connection c;
 	ipl.GetDestIP(c.src);
 	ipl.GetSourceIP(c.dest);
 	ipl.GetProtocol(c.protocol);
-	
 
         TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
 	tcph.GetDestPort(c.srcport);
 	tcph.GetSourcePort(c.destport);
-	tcph.GetAckNum(acknum);
-	tcph.GetSeqNum(seq);
-	//tcph.GetWinSize(window);	
+	tcph.GetAckNum(acknump);
+	tcph.GetSeqNum(seqp);
+	tcph.GetFlags(orgflags);
+	tcph.GetWinSize(windowp);	
+
 	checksumok = tcph.IsCorrectChecksum(p);
 
-	//TODO: Something about seqnum being nonzero
-
-	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(c);
-	/*
-	if (cs != connection_list.end()){
-		SockRequestResponse write(WRITE, (*cs).connection, data, len, EOK);
-	
-		if (!checksumok){
-			MinetSendToMonitor(MinetMonitoringEvent("forwarding packet to sock even though checksum failed"));}
-		MinetSend(sock, write);
-	} else {
-	MinetSendToMonitor(MinetMonitoringEvent("Unknown port, sending ICMP error message"));
-	IPAddress source; ipl.GetSourceIP(source);
-	ICMPPacket error(source, DESTINATION_UNREACHABLE, PORT_UNREACHABLE, p);
-	MinetSendToMonitor(MinetMonitoringEvent("ICMP error message has been sent to host"));
-	MinetSend(mux, error);
+	if (seq == 0) { 
+		seq = rand() % 50000;
 	}
-	*/
+	c.protocol = IP_PROTO_TCP;
+
+	// TODO: understand why we set it to be any
+	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(c);
+		if (cs != connection_list.end()){
+			c.dest = IP_ADDRESS_ANY;
+			c.destport = PORT_ANY;
+			cerr << "Not listening for: " << c << endl << endl;
+		}
+
+		if ((*cs).connection.dest == IPAddress(IP_ADDRESS_ANY) || (*cs).connection.destport == PORT_ANY) {
+		(*cs).connection.dest = c.dest;
+		(*cs).connection.destport = c.destport;
+		}
+		cerr << (*cs).state.GetState() << endl;
+	
+	switch ((*cs).state.GetState()) {
+		case LISTEN:
+			if (IS_SYN(orgflags) && !IS_ACK(orgflags) || IS_RST(orgflags)) {
+				//Passively open 
+				(*cs).state.SetLastSent(seq);
+				(*cs).state.SetSendRwnd(window);
+				
+				SET_SYN(newflags);
+				SET_ACK(newflags);
+				
+//Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned int &window, unsigned int &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
+				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, uptp, newflagsp, "", 0); 
+				MinetSend(mux, respPacket);
+				(*cs).state.SetLastRecvd(acknum + 1);
+			}
+			break;
+	}
 
 		
         cerr << "TCP Packet: IP Header is "<<ipl<<" and ";
