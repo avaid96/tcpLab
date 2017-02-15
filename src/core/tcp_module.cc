@@ -160,7 +160,6 @@ int main(int argc, char *argv[])
         IPHeader ipl=p.FindHeader(Headers::IPHeader);
 	Connection c;
 	ipl.GetDestIP(c.src);
-	//cerr << c.dest << endl;
 	ipl.GetSourceIP(c.dest);
 
         TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
@@ -170,6 +169,11 @@ int main(int argc, char *argv[])
 	tcph.GetSeqNum(acknump);
 	tcph.GetFlags(orgflagsp);
 	tcph.GetWinSize(windowp);	
+
+	cerr << "TCP Packet rcvd: IP Header is "<<ipl<<" and ";
+        cerr << "TCP Header is "<<tcph << " and ";
+
+        cerr << "Checksum is " << (tcph.IsCorrectChecksum(p) ? "VALID" : "INVALID");
 	checksumok = tcph.IsCorrectChecksum(p);
 
 	if (seq == 0) { 
@@ -177,38 +181,24 @@ int main(int argc, char *argv[])
 	}
 	c.protocol = IP_PROTO_TCP;
 
-	// TODO: understand why we set it to be any
 	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(c);
 		if (cs == connection_list.end()){
-			(*cs).connection.dest = c.dest;
-			//cerr << c.dest << endl;
-			(*cs).connection.destport = c.destport;
-			(*cs).state.SetState(LISTEN);
-			/*
-			c.dest = IPAddress(IP_ADDRESS_ANY);
-			c.destport = PORT_ANY;
+			//c.dest = IPAddress(IP_ADDRESS_ANY);
+			//c.destport = PORT_ANY;
 			cerr << "Not listening for: " << c << endl << endl;
-			
-		*/
 		}
-		/*
 		if ((*cs).connection.dest == IPAddress(IP_ADDRESS_ANY) || (*cs).connection.destport == PORT_ANY) {
-			//cerr << "GOT CONN" << endl;
 			(*cs).connection.dest = c.dest;
 			cerr << c.dest << endl;
 			(*cs).connection.destport = c.destport;
-			(*cs).state.setState(LISTEN);
-		
-		}*/
-	//	cerr << (*cs).state.GetState() << endl;
+			(*cs).state.SetState(LISTEN);
+		}
 		
 		
 	cerr << "Entering switch phase" << endl; 
-	// TODO: WHERE DO WE SET THE STATE TO LISTEN
 	switch ((*cs).state.GetState()) {
 		case CLOSED:
 			cerr << "In closed phase" << endl; 
-			(*cs).state.SetState(LISTEN);
 			break;
 			
 		case LISTEN:
@@ -222,7 +212,6 @@ int main(int argc, char *argv[])
 				SET_SYN(newflags);
 				SET_ACK(newflags);
 				
-//Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned short &window, unsigned short &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
 				MinetSend(mux, respPacket);
         			TCPHeader tcprh=respPacket.FindHeader(Headers::TCPHeader);
@@ -265,11 +254,7 @@ int main(int argc, char *argv[])
 	}
 
 		
-        cerr << "TCP Packet: IP Header is "<<ipl<<" and ";
-        cerr << "TCP Header is "<<tcph << " and ";
-
-        cerr << "Checksum is " << (tcph.IsCorrectChecksum(p) ? "VALID" : "INVALID");
-      }
+              }
           //  Data from the Sockets layer above  //
       if (event.handle==sock) {
         SockRequestResponse s;
