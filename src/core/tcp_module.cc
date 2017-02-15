@@ -35,7 +35,7 @@ Packet WritePacket(const Connection c, const unsigned int &id, const unsigned ch
 	iph.SetProtocol(IP_PROTO_TCP);
 	iph.SetSourceIP(c.src);
 	iph.SetDestIP(c.dest);
-	iph.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
+	iph.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH + datalen);
 	iph.SetID(id);
 
 	p.PushFrontHeader(iph);
@@ -134,11 +134,8 @@ int main(int argc, char *argv[])
 	unsigned char newflags= 0;
 	unsigned char &newflagsp = newflags;
 
-	unsigned char hlen= 0;
+	unsigned char hlen= 5;
 	unsigned char &hlenp = hlen;
-
-	unsigned char upt = 0;
-	unsigned char &uptp = upt;
 
   while (MinetGetNextEvent(event)==0) {
 	newflags = 0;
@@ -156,23 +153,23 @@ int main(int argc, char *argv[])
 	Packet p;
         MinetReceive(mux,p);
         unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
-        cerr << "estimated header len="<<tcphlen<<"\n";
+        unsigned iphlen =IPHeader::EstimateIPHeaderLength(p);
+	cerr << "estimated header len="<<tcphlen<<"\n";
         p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
 
         IPHeader ipl=p.FindHeader(Headers::IPHeader);
 	Connection c;
 	ipl.GetDestIP(c.src);
+	//cerr << c.dest << endl;
 	ipl.GetSourceIP(c.dest);
-	ipl.GetProtocol(c.protocol);
 
         TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
 	tcph.GetDestPort(c.srcport);
 	tcph.GetSourcePort(c.destport);
-	tcph.GetAckNum(acknump);
-	tcph.GetSeqNum(seqp);
-	tcph.GetFlags(orgflags);
+	tcph.GetAckNum(seqp);
+	tcph.GetSeqNum(acknump);
+	tcph.GetFlags(orgflagsp);
 	tcph.GetWinSize(windowp);	
-
 	checksumok = tcph.IsCorrectChecksum(p);
 
 	if (seq == 0) { 
@@ -182,33 +179,88 @@ int main(int argc, char *argv[])
 
 	// TODO: understand why we set it to be any
 	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(c);
-		if (cs != connection_list.end()){
-			c.dest = IP_ADDRESS_ANY;
+		if (cs == connection_list.end()){
+			(*cs).connection.dest = c.dest;
+			//cerr << c.dest << endl;
+			(*cs).connection.destport = c.destport;
+			(*cs).state.SetState(LISTEN);
+			/*
+			c.dest = IPAddress(IP_ADDRESS_ANY);
 			c.destport = PORT_ANY;
 			cerr << "Not listening for: " << c << endl << endl;
+			
+		*/
 		}
-
+		/*
 		if ((*cs).connection.dest == IPAddress(IP_ADDRESS_ANY) || (*cs).connection.destport == PORT_ANY) {
-		(*cs).connection.dest = c.dest;
-		(*cs).connection.destport = c.destport;
-		}
-		cerr << (*cs).state.GetState() << endl;
-	
+			//cerr << "GOT CONN" << endl;
+			(*cs).connection.dest = c.dest;
+			cerr << c.dest << endl;
+			(*cs).connection.destport = c.destport;
+			(*cs).state.setState(LISTEN);
+		
+		}*/
+	//	cerr << (*cs).state.GetState() << endl;
+		
+		
+	cerr << "Entering switch phase" << endl; 
+	// TODO: WHERE DO WE SET THE STATE TO LISTEN
 	switch ((*cs).state.GetState()) {
+		case CLOSED:
+			cerr << "In closed phase" << endl; 
+			(*cs).state.SetState(LISTEN);
+			break;
+			
 		case LISTEN:
+			cerr << "Entering listen phase" << endl; 
 			if (IS_SYN(orgflags) && !IS_ACK(orgflags) || IS_RST(orgflags)) {
-				//Passively open 
+				//Passive open 
 				(*cs).state.SetLastSent(seq);
 				(*cs).state.SetSendRwnd(window);
 				
+				(*cs).state.SetState(SYN_RCVD);
 				SET_SYN(newflags);
 				SET_ACK(newflags);
 				
-//Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned int &window, unsigned int &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
-				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, uptp, newflagsp, "", 0); 
+//Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned short &window, unsigned short &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
+				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
 				MinetSend(mux, respPacket);
+        			TCPHeader tcprh=respPacket.FindHeader(Headers::TCPHeader);
+        			IPHeader iprh=respPacket.FindHeader(Headers::IPHeader);
+				cerr << "IP response head: " << iprh << endl;
+				cerr << "TCP response head: " << tcprh << endl;
+
 				(*cs).state.SetLastRecvd(acknum + 1);
 			}
+			break;
+		case SYN_SENT:
+			break;
+		case SYN_RCVD:
+			cerr << "In SYN_RCVD phase" << endl;
+			cerr << ((*cs).state.GetLastRecvd()) << endl;
+			cerr << seq << endl;
+			//if ((*cs).state.GetLastRecvd() == seq){
+				cerr << "entered outer if" << endl;
+				if (IS_ACK(orgflags)){
+					cerr << "Established" << endl;
+					(*cs).state.SetState(ESTABLISHED);
+					(*cs).state.SetSendRwnd(windowp);
+					(*cs).state.SetLastAcked((*cs).state.GetLastAcked()+1);
+					//(*cs).bTmrActive = false;
+					
+				} else if ((IS_SYN(orgflags) && !IS_ACK(orgflags) || IS_RST(orgflags))){
+				
+					cerr << "SYN ACK LOST" << endl;
+					(*cs).state.SetLastSent(seq);
+					(*cs).state.SetSendRwnd(window);
+
+					SET_SYN(newflags);
+					SET_ACK(newflags);
+				}
+			//}
+			break;
+		case ESTABLISHED:
+			cerr << "In established phase" << endl;
 			break;
 	}
 
