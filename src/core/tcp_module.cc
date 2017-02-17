@@ -21,6 +21,7 @@ using std::cout;
 using std::endl;
 using std::cerr;
 using std::string;
+using std::queue;
 
 
 Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned short &window, unsigned short &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
@@ -60,7 +61,7 @@ int main(int argc, char *argv[])
   MinetHandle mux, sock;
 
   ConnectionList<TCPState> connection_list;
-  //queue<SockRequestResponse> sock_response;  
+  //queue<SockRequestResponse> sock_queue;  
 
   MinetInit(MINET_TCP_MODULE);
 
@@ -125,8 +126,8 @@ int main(int argc, char *argv[])
 	unsigned int padding = 0;
 	unsigned int &paddingp = padding;
 
-	unsigned int data = 0;
-	unsigned int &datap = data;
+	Buffer data;
+	Buffer &datap = data;
 
 	unsigned char orgflags= 0;
 	unsigned char &orgflagsp = orgflags;
@@ -226,36 +227,79 @@ int main(int argc, char *argv[])
 			break;
 		case SYN_RCVD:
 			cerr << "In SYN_RCVD phase" << endl;
-			cerr << ((*cs).state.GetLastRecvd()) << endl;
-			cerr << seq << endl;
-			//if ((*cs).state.GetLastRecvd() == seq){
+			//cerr << ((*cs).state.GetLastRecvd()) << endl;
+			//cerr << seq << endl;
+			//if ((*cs).state.GetLastRecvd() == acknum+1){
 				cerr << "entered outer if" << endl;
 				if (IS_ACK(orgflags)){
 					cerr << "Established" << endl;
 					(*cs).state.SetState(ESTABLISHED);
-					(*cs).state.SetSendRwnd(windowp);
-					(*cs).state.SetLastAcked((*cs).state.GetLastAcked()+1);
+					//(*cs).state.SetSendRwnd(windowp);
+					//(*cs).state.SetLastAcked((*cs).state.GetLastAcked()+1);
 					//(*cs).bTmrActive = false;
 					
 				} else if ((IS_SYN(orgflags) && !IS_ACK(orgflags) || IS_RST(orgflags))){
-				
 					cerr << "SYN ACK LOST" << endl;
 					(*cs).state.SetLastSent(seq);
 					(*cs).state.SetSendRwnd(window);
 
 					SET_SYN(newflags);
 					SET_ACK(newflags);
+					Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+					MinetSend(mux, respPacket);
+					(*cs).state.SetLastRecvd(acknum + 1);
 				}
 			//}
 			break;
 		case ESTABLISHED:
 			cerr << "In established phase" << endl;
+			if(IS_FIN(orgflags)) {
+				cerr << "Finito" << endl;
+				(*cs).state.SetState(CLOSE_WAIT);
+				SET_ACK(newflags);
+				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+				MinetSend(mux, respPacket);
+				SockRequestResponse close(CLOSE, (*cs).connection, data, hlenp, EOK);
+				MinetSend(sock, close);
+				(*cs).state.SetLastRecvd(acknum + 1);
+			}
+			else if(IS_RST(orgflags)) {
+				cerr << "Reset" << endl;
+				(*cs).state.SetLastSent(seq);
+				(*cs).state.SetSendRwnd(window);
+				SET_SYN(newflags);
+				SET_ACK(newflags);
+				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+				MinetSend(mux, respPacket);
+			}
+			else {
+				cerr << "we have data packet" << endl;
+				unsigned short tempdatalen = 0;
+				unsigned short &tempdatalenp = tempdatalen;
+				unsigned char tempheaderlen = 0;
+				unsigned char &tempheaderlenp = tempheaderlen;
+	
+				ipl.GetTotalLength(tempdatalenp);
+				ipl.GetHeaderLength(tempheaderlenp);
+
+				tempdatalen -= 4 * tempheaderlen + tcphlen;
+				
+				data = p.GetPayload().ExtractFront(tempdatalen);
+				cerr << data << endl;
+				
+				SockRequestResponse write(WRITE, (*cs).connection, data, tempdatalen, EOK);
+				MinetSend(sock, write);
+				SET_ACK(newflags);	
+				Packet respPacket = WritePacket(c, idp, hlenp, acknum + tempdatalen, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+				MinetSend(mux, respPacket);
+				(*cs).state.SetLastRecvd(acknum + tempdatalen);
+			}
 			break;
 	}
 
 		
               }
-          //  Data from the Sockets layer above  //
+      //  Data from the Sockets layer above  //
       if (event.handle==sock) {
         SockRequestResponse s;
         MinetReceive(sock,s);
