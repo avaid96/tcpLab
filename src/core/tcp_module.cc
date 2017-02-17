@@ -190,6 +190,8 @@ int main(int argc, char *argv[])
 		}
 		if ((*cs).connection.dest == IPAddress(IP_ADDRESS_ANY) || (*cs).connection.destport == PORT_ANY) {
 			(*cs).connection.dest = c.dest;
+			(*cs).connection.src = c.src;
+			(*cs).connection.srcport = c.srcport;
 			cerr << c.dest << endl;
 			(*cs).connection.destport = c.destport;
 			(*cs).state.SetState(LISTEN);
@@ -288,6 +290,8 @@ int main(int argc, char *argv[])
 				cerr << data << endl;
 				
 				SockRequestResponse write(WRITE, (*cs).connection, data, tempdatalen, EOK);
+				write.type = WRITE;
+				cerr << write << endl;
 				MinetSend(sock, write);
 				SET_ACK(newflags);	
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + tempdatalen, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
@@ -295,17 +299,97 @@ int main(int argc, char *argv[])
 				(*cs).state.SetLastRecvd(acknum + tempdatalen);
 			}
 			break;
-	}
+	
+	case FIN_WAIT1:
+		if (IS_FIN(orgflags) && IS_ACK(orgflags)){
+			cerr << "Received FIN and ACK" << endl;
+			(*cs).state.SetState(TIME_WAIT);
+			(*cs).state.SetLastAcked(acknum);
+			(*cs).state.SetLastRecvd(seq);
+			Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+			MinetSend(mux, respPacket);
+		}	else if (IS_FIN(orgflags)){
+			cerr << "Received FIN" << endl;
+			(*cs).state.SetState(CLOSING);
+			SET_ACK(newflags);		
+			Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+			MinetSend(mux, respPacket);
+			(*cs).state.SetLastRecvd(acknum + 1);
+		} else if (IS_ACK(orgflags) && !IS_PSH(orgflags)){
+			cerr << "Received Close ACK" << endl;
+			(*cs).state.SetState(FIN_WAIT2);
+			(*cs).state.SetLastRecvd(acknum + 1);
+		}
+		break;
 
-		
-              }
+	case FIN_WAIT2:
+		if (IS_FIN(orgflags)){
+			cerr << "Received FIN" << endl;
+			(*cs).state.SetState(TIME_WAIT);
+			SET_ACK(newflags);
+			Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+			MinetSend(mux, respPacket);
+		}
+		break;
+	case CLOSING:
+		cerr << "CLOSING!!!" << endl;
+		if (IS_ACK(orgflags)){
+			(*cs).state.SetState(TIME_WAIT);
+			(*cs).state.SetLastRecvd(seq);
+			(*cs).state.SetLastAcked(acknum);
+		}
+		break;
+	case TIME_WAIT:
+		cerr << "YAYYY TIME WAIT" << endl;
+		sleep(2*MSL_TIME_SECS);
+		(*cs).state.SetState(CLOSE);
+		break;
+	case LAST_ACK:
+		cerr << "LAST ACK BEFORE CLOSING." << endl;
+		if (IS_ACK(orgflags)){
+			connection_list.erase(cs);
+			(*cs).state.SetState(CLOSED);
+		}		
+	
+      }
+      }
       //  Data from the Sockets layer above  //
       if (event.handle==sock) {
         SockRequestResponse s;
         MinetReceive(sock,s);
         cerr << "Received Socket Request:" << s << endl;
+	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(s.connection);
+
+	switch (s.type){
+		case CONNECT:
+			break;
+		case ACCEPT:
+			break;
+		case WRITE:
+			cerr << "In write" << endl;
+			break;
+		case CLOSE:
+			switch ((*cs).state.GetState()){
+				case SYN_SENT:
+					break;
+				case SYN_RCVD:
+					break;
+				case ESTABLISHED:
+					break;
+				case CLOSE_WAIT:
+					(*cs).state.SetState(LAST_ACK);
+					(*cs).state.SetLastSent((*cs).state.GetLastSent()+1);
+					(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd());
+					SET_FIN(newflags);
+					Packet respP = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+					MinetSend(mux, respP);
+					break;
+			}
+		break;
+	}		
+	
       }
-    }
+    }    
   }
   return 0;
 }
