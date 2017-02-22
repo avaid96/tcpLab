@@ -58,6 +58,7 @@ Packet WritePacket(const Connection c, const unsigned int &id, const unsigned ch
 
 int main(int argc, char *argv[])
 {
+  srand(time(NULL));
   MinetHandle mux, sock;
 
   ConnectionList<TCPState> connection_list;
@@ -81,11 +82,8 @@ int main(int argc, char *argv[])
   MinetSendToMonitor(MinetMonitoringEvent("tcp_module handling TCP traffic"));
 
   MinetEvent event;
+  double min_timeout = -1;
 
-  //Buffer datagram;
-  //Buffer &data = datagram;
-
-	//Dunno
 	unsigned char oldflags;
 
 	//For use in IP Header
@@ -138,7 +136,7 @@ int main(int argc, char *argv[])
 	unsigned char hlen= 5;
 	unsigned char &hlenp = hlen;
 
-  while (MinetGetNextEvent(event)==0) {
+  while (MinetGetNextEvent(event, min_timeout)==0) {
 	newflags = 0;
     // if we received an unexpected type of event, print error
     if (event.eventtype!=MinetEvent::Dataflow 
@@ -226,6 +224,18 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case SYN_SENT:
+			if(IS_SYN(orgflags) && IS_ACK(orgflags)) {
+				cerr << "ACTIVE OPEN!" << endl;
+				(*cs).state.SetState(ESTABLISHED);
+				SET_ACK(newflags);
+				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+				MinetSend(mux, respPacket);
+				SockRequestResponse write(WRITE, (*cs).connection, data, 0, EOK);
+				write.type = WRITE;
+				(*cs).state.SetLastRecvd(acknum + 1);
+			} else if(IS_SYN(orgflags)) {
+				// Handle a possible passive open?
+			}
 			break;
 		case SYN_RCVD:
 			cerr << "In SYN_RCVD phase" << endl;
@@ -241,6 +251,7 @@ int main(int argc, char *argv[])
 					//(*cs).bTmrActive = false;
 					
 				} else if ((IS_SYN(orgflags) && !IS_ACK(orgflags) || IS_RST(orgflags))){
+					// DEALING WITH LOST PACKET 
 					cerr << "SYN ACK LOST" << endl;
 					(*cs).state.SetLastSent(seq);
 					(*cs).state.SetSendRwnd(window);
@@ -257,22 +268,38 @@ int main(int argc, char *argv[])
 			cerr << "In established phase" << endl;
 			if(IS_FIN(orgflags)) {
 				cerr << "Finito" << endl;
+				unsigned short tempdatalen = 0;
+				unsigned short &tempdatalenp = tempdatalen;
+				unsigned char tempheaderlen = 0;
+				unsigned char &tempheaderlenp = tempheaderlen;
+	
+				ipl.GetTotalLength(tempdatalenp);
+				ipl.GetHeaderLength(tempheaderlenp);
+
+				tempdatalen -= 4 * tempheaderlen + tcphlen;
+				
+				data = p.GetPayload().ExtractFront(tempdatalen);
+				cerr << data << endl;
+
+
 				(*cs).state.SetState(CLOSE_WAIT);
 				SET_ACK(newflags);
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
 				MinetSend(mux, respPacket);
-				SockRequestResponse close(CLOSE, (*cs).connection, data, hlenp, EOK);
-				MinetSend(sock, close);
 				(*cs).state.SetLastRecvd(acknum + 1);
+				(*cs).connection.protocol = IP_PROTO_TCP;
+				SockRequestResponse close(WRITE, (*cs).connection, data, tempdatalen, EOK);
+				cerr << close << endl;
+				MinetSend(sock, close);
 			}
 			else if(IS_RST(orgflags)) {
 				cerr << "Reset" << endl;
-				(*cs).state.SetLastSent(seq);
+				/*(*cs).state.SetLastSent(seq);
 				(*cs).state.SetSendRwnd(window);
 				SET_SYN(newflags);
 				SET_ACK(newflags);
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
-				MinetSend(mux, respPacket);
+				MinetSend(mux, respPacket);*/
 			}
 			else {
 				cerr << "we have data packet" << endl;
@@ -289,9 +316,8 @@ int main(int argc, char *argv[])
 				data = p.GetPayload().ExtractFront(tempdatalen);
 				cerr << data << endl;
 				
+				(*cs).connection.protocol = IP_PROTO_TCP;
 				SockRequestResponse write(WRITE, (*cs).connection, data, tempdatalen, EOK);
-				write.type = WRITE;
-				cerr << write << endl;
 				MinetSend(sock, write);
 				SET_ACK(newflags);	
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + tempdatalen, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
@@ -353,15 +379,26 @@ int main(int argc, char *argv[])
 	
       }
       }
+
+
       //  Data from the Sockets layer above  //
       if (event.handle==sock) {
         SockRequestResponse s;
         MinetReceive(sock,s);
-        cerr << "Received Socket Request:" << s << endl;
+        cerr << "Received Socket Request in event=sock:" << s << endl;
 	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(s.connection);
+
+	/*
+	ConnectionToStateMapping<TCPState> map;
+	if (cs == clist.end()) {
+		map.connection = s.connection;
+		map.state.SetState(CLOSED);
+		connection_list.push
+	*/
 
 	switch (s.type){
 		case CONNECT:
+			cerr << "Connect request from application layer";
 			break;
 		case ACCEPT:
 			break;
@@ -369,6 +406,7 @@ int main(int argc, char *argv[])
 			cerr << "In write" << endl;
 			break;
 		case CLOSE:
+			cerr << "In close" << endl;
 			switch ((*cs).state.GetState()){
 				case SYN_SENT:
 					break;
@@ -377,11 +415,13 @@ int main(int argc, char *argv[])
 				case ESTABLISHED:
 					break;
 				case CLOSE_WAIT:
+					cerr << "In close wait" << endl;
 					(*cs).state.SetState(LAST_ACK);
 					(*cs).state.SetLastSent((*cs).state.GetLastSent()+1);
 					(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd());
 					SET_FIN(newflags);
 					Packet respP = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+					cerr << "RESPONDED WITH: " << respP;
 					MinetSend(mux, respP);
 					break;
 			}
@@ -389,7 +429,20 @@ int main(int argc, char *argv[])
 	}		
 	
       }
-    }    
+      if(event.eventtype == MinetEvent::Timeout) {
+		cerr << "TIMEOUT" << endl;
+		ConnectionList<TCPState>::iterator i=connection_list.begin();
+		for(; i!=connection_list.end();++i) {
+			if((*i).bTmrActive) {
+				cerr<<*i<<endl;
+			}
+		}
+		if((*connection_list.FindEarliest()).Matches((*connection_list.end()).connection)) 
+			min_timeout = -1;
+		else
+			min_timeout = (*connection_list.FindEarliest()).timeout;
+      }
+    }
   }
   return 0;
 }
