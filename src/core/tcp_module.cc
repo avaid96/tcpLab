@@ -386,16 +386,32 @@ int main(int argc, char *argv[])
         SockRequestResponse s;
         MinetReceive(sock,s);
         cerr << "Received Socket Request in event=sock:" << s << endl;
+
 	ConnectionList<TCPState>::iterator cs = connection_list.FindMatching(s.connection);
 
 	/*
+        IPHeader ipl=p.FindHeader(Headers::IPHeader);
+	ipl.GetDestIP(cs.src);
+	ipl.GetSourceIP(cs.dest);
+
+        TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
+	tcph.GetDestPort(cs.srcport);
+	tcph.GetSourcePort(cs.destport);
+	tcph.GetAckNum(seqp);
+	tcph.GetSeqNum(acknump);
+	tcph.GetFlags(orgflagsp);
+	tcph.GetWinSize(windowp);	
+	*/
+	
 	ConnectionToStateMapping<TCPState> map;
-	if (cs == clist.end()) {
+	if (cs == connection_list.end()) {
 		map.connection = s.connection;
 		map.state.SetState(CLOSED);
-		connection_list.push
-	*/
-
+		connection_list.push_back(map);
+	
+	
+	cs = connection_list.FindMatching(s.connection);
+	}
 	switch (s.type){
 		case CONNECT:
 			cerr << "Connect request from application layer";
@@ -417,11 +433,16 @@ int main(int argc, char *argv[])
 				case CLOSE_WAIT:
 					cerr << "In close wait" << endl;
 					(*cs).state.SetState(LAST_ACK);
-					(*cs).state.SetLastSent((*cs).state.GetLastSent()+1);
-					(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd());
+					//(*cs).state.SetLastSent((*cs).state.GetLastSent()+1);
+					//(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd());
 					SET_FIN(newflags);
+					seq = (map).state.GetLastSent();
+					seq++;
+					(*cs).state.SetLastSent(seq);
+					acknum = (map).state.GetLastRecvd();
+					(*cs).state.SetLastRecvd(acknum);
+;
 					Packet respP = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
-					cerr << "RESPONDED WITH: " << respP;
 					MinetSend(mux, respP);
 					break;
 			}
