@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
 			(*cs).connection.srcport = c.srcport;
 			cerr << c.dest << endl;
 			(*cs).connection.destport = c.destport;
-			(*cs).state.SetState(LISTEN);
+			//(*cs).state.SetState(LISTEN);
 		}
 		
 		
@@ -201,7 +201,7 @@ int main(int argc, char *argv[])
 		case CLOSED:
 			cerr << "In closed phase" << endl; 
 			break;
-			
+
 		case LISTEN:
 			cerr << "Entering listen phase" << endl; 
 			if (IS_SYN(orgflags) && !IS_ACK(orgflags) || IS_RST(orgflags)) {
@@ -224,6 +224,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case SYN_SENT:
+			cerr << "syn sent" << endl;
 			if(IS_SYN(orgflags) && IS_ACK(orgflags)) {
 				cerr << "ACTIVE OPEN!" << endl;
 				(*cs).state.SetState(ESTABLISHED);
@@ -412,14 +413,72 @@ int main(int argc, char *argv[])
 	
 	cs = connection_list.FindMatching(s.connection);
 	}
+
+	Packet newPack;
+	SockRequestResponse res;
+	TCPHeader tcph;
+	char *gbnBuffer = NULL;
+	unsigned int len = 0;
+	unsigned int sending = 0;
 	switch (s.type){
 		case CONNECT:
-			cerr << "Connect request from application layer";
+			cerr << "Connect request from application layer" << endl;
+		        (*cs).state.SetState(SYN_SENT);	
+			seq = rand() % 50000;
+			
+			SET_SYN(newflags);
+			cerr << s.connection << endl;
+			newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+        		tcph=newPack.FindHeader(Headers::TCPHeader);
+			cerr << tcph << endl;
+			MinetSend(mux, newPack);
+			cerr << "---" << endl;
+		        sleep(20);	
+			MinetSend(mux, newPack);
+			cerr << "---" << endl;
+			//res(STATUS, (*cs).connection, data, 0, EOK);
+			res.type = STATUS;
+			res.connection = s.connection;
+			res.bytes = 0;
+			res.error = EOK;
+			MinetSend(sock, res);
+			(*cs).state.SetLastSent(seq);
+			(*cs).state.SetLastRecvd(acknum);
 			break;
 		case ACCEPT:
+			cerr << "Passive Open Response." << endl;
+			(*cs).state.SetState(LISTEN);
 			break;
 		case WRITE:
+			//GO-BACK-N SENDER SIDE
+			if (map.state.GetState() == ESTABLISHED){
+				acknum = map.state.GetLastRecvd();
+				len = s.data.GetSize();
+				sending = 0;
+				gbnBuffer = (char *) malloc(TCP_MAXIMUM_SEGMENT_SIZE + 1);
+				SockRequestResponse res(STATUS, map.connection, data, len, EOK);
+				MinetSend(sock, res);
 			cerr << "In write" << endl;
+				while (len > 0){
+					memset(gbnBuffer, 0, TCP_MAXIMUM_SEGMENT_SIZE + 1);
+					seq = map.state.GetLastSent();
+					//Chunky Peanut Butter
+					if (len > TCP_MAXIMUM_SEGMENT_SIZE){
+						sending = TCP_MAXIMUM_SEGMENT_SIZE;
+						len -= TCP_MAXIMUM_SEGMENT_SIZE;
+					}
+					else{
+						sending = len;
+						len -= len;
+					}
+					data = s.data.ExtractFront(sending);
+					data.GetData(gbnBuffer, sending, 0);
+					newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, gbnBuffer, sending); 
+					MinetSend(mux, newPack);
+					(*cs).state.SetLastSent(seq+sending);
+				}
+				free(gbnBuffer);
+			}
 			break;
 		case CLOSE:
 			cerr << "In close" << endl;
@@ -429,6 +488,15 @@ int main(int argc, char *argv[])
 				case SYN_RCVD:
 					break;
 				case ESTABLISHED:
+					(*cs).state.SetState(FIN_WAIT1);
+					SET_FIN(newflags);
+					seq = (map).state.GetLastSent();
+					seq++;
+					(*cs).state.SetLastSent(seq);
+					acknum = (map).state.GetLastRecvd();
+					(*cs).state.SetLastRecvd(acknum);
+					newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+					MinetSend(mux, newPack);
 					break;
 				case CLOSE_WAIT:
 					cerr << "In close wait" << endl;
