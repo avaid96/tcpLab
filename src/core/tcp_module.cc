@@ -233,8 +233,10 @@ int main(int argc, char *argv[])
 				MinetSend(mux, respPacket);
 				SockRequestResponse write(WRITE, (*cs).connection, data, 0, EOK);
 				write.type = WRITE;
+				MinetSend(sock, write);
 				(*cs).state.SetLastRecvd(acknum + 1);
 			} else if(IS_SYN(orgflags)) {
+				cerr << "GOT BACK A SYN????" << endl;
 				// Handle a possible passive open?
 			}
 			break;
@@ -404,14 +406,16 @@ int main(int argc, char *argv[])
 	tcph.GetWinSize(windowp);	
 	*/
 	
+	// NO REFERENCE TO CS WHAT IF IT'S EMPTY
+	// DO THIS IN A TCP STATE
+	// CREATE SEND / RCV BUGGERS 
+	// CREATE A CONNECTIONSTATEMAPPING AND PUSH TO THE CS LIST
 	ConnectionToStateMapping<TCPState> map;
 	if (cs == connection_list.end()) {
 		map.connection = s.connection;
 		map.state.SetState(CLOSED);
 		connection_list.push_back(map);
-	
-	
-	cs = connection_list.FindMatching(s.connection);
+		cs = connection_list.FindMatching(s.connection);
 	}
 
 	Packet newPack;
@@ -421,19 +425,19 @@ int main(int argc, char *argv[])
 	unsigned int len = 0;
 	unsigned int sending = 0;
 	switch (s.type){
+		case STATUS:
+			break;
 		case CONNECT:
 			cerr << "Connect request from application layer" << endl;
 		        (*cs).state.SetState(SYN_SENT);	
 			seq = rand() % 50000;
 			
 			SET_SYN(newflags);
-			cerr << s.connection << endl;
 			newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
-        		tcph=newPack.FindHeader(Headers::TCPHeader);
-			cerr << tcph << endl;
+		        sleep(10);	
 			MinetSend(mux, newPack);
 			cerr << "---" << endl;
-		        sleep(20);	
+		        sleep(10);	
 			MinetSend(mux, newPack);
 			cerr << "---" << endl;
 			//res(STATUS, (*cs).connection, data, 0, EOK);
@@ -450,18 +454,20 @@ int main(int argc, char *argv[])
 			(*cs).state.SetState(LISTEN);
 			break;
 		case WRITE:
+			cerr << "Socket write event" << endl;
 			//GO-BACK-N SENDER SIDE
-			if (map.state.GetState() == ESTABLISHED){
+			if ((*cs).state.GetState() == ESTABLISHED){
 				acknum = map.state.GetLastRecvd();
 				len = s.data.GetSize();
 				sending = 0;
 				gbnBuffer = (char *) malloc(TCP_MAXIMUM_SEGMENT_SIZE + 1);
 				SockRequestResponse res(STATUS, map.connection, data, len, EOK);
 				MinetSend(sock, res);
-			cerr << "In write" << endl;
 				while (len > 0){
 					memset(gbnBuffer, 0, TCP_MAXIMUM_SEGMENT_SIZE + 1);
 					seq = map.state.GetLastSent();
+					cerr << (*cs).state.GetLastSent() << endl;
+					cerr << seq << endl;
 					//Chunky Peanut Butter
 					if (len > TCP_MAXIMUM_SEGMENT_SIZE){
 						sending = TCP_MAXIMUM_SEGMENT_SIZE;
@@ -471,9 +477,23 @@ int main(int argc, char *argv[])
 						sending = len;
 						len -= len;
 					}
+					// getting sending number of chars from the socket
 					data = s.data.ExtractFront(sending);
+					cerr << data << endl;
+					// possibly putting into gbnBuffer 
 					data.GetData(gbnBuffer, sending, 0);
-					newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, gbnBuffer, sending); 
+					cerr << "sendBuf: " << gbnBuffer << endl;
+					cerr << "bufLen: " << sending << endl;
+					// ISSUE WITH PACKET FORMATION PROLLY TO DO WITH THE SEQ NUM
+					// WIRESHARK: ACK FLAG NOT SET WHEN WE HAVE ACK NUM
+//Packet WritePacket(const Connection c, const unsigned int &id, const unsigned char &hlen, const unsigned int &acknum, unsigned int &seq, unsigned short &window, unsigned short &urgentpointer, unsigned char &flags, const char *data, unsigned short datalen){
+					//newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, gbnBuffer, sending); 
+					unsigned int ackH = 0;
+					unsigned int seqH = 2;
+					unsigned int &ackHP = ackH;
+					unsigned int &seqHP = seqH;
+					newPack = WritePacket(s.connection, idp, hlenp, ackHP, seqHP, windowp, urgentpointerp, newflagsp, gbnBuffer, sending); 
+					cerr << newPack << endl;
 					MinetSend(mux, newPack);
 					(*cs).state.SetLastSent(seq+sending);
 				}
