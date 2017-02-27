@@ -335,6 +335,7 @@ int main(int argc, char *argv[])
 			break;
 	
 	case FIN_WAIT1:
+		cerr << "FW1" << endl;
 		if (IS_FIN(orgflags) && IS_ACK(orgflags)){
 			cerr << "Received FIN and ACK" << endl;
 			(*cs).state.SetState(TIME_WAIT);
@@ -354,9 +355,11 @@ int main(int argc, char *argv[])
 			(*cs).state.SetState(FIN_WAIT2);
 			(*cs).state.SetLastRecvd(acknum + 1);
 		}
-		break;
+		//break;
 
 	case FIN_WAIT2:
+		cerr << "in fw2" << endl;
+		(*cs).state.SetState(TIME_WAIT);
 		if (IS_FIN(orgflags)){
 			cerr << "Received FIN" << endl;
 			(*cs).state.SetState(TIME_WAIT);
@@ -364,6 +367,12 @@ int main(int argc, char *argv[])
 			Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
 			MinetSend(mux, respPacket);
 		}
+		//break;	
+	case TIME_WAIT:
+		cerr << "YAYYY TIME WAIT" << endl;
+		sleep(2*MSL_TIME_SECS);
+		(*cs).state.SetState(CLOSE);
+		cerr <<"Connection Closed!" << endl;
 		break;
 	case CLOSING:
 		cerr << "CLOSING!!!" << endl;
@@ -373,17 +382,13 @@ int main(int argc, char *argv[])
 			(*cs).state.SetLastAcked(acknum);
 		}
 		break;
-	case TIME_WAIT:
-		cerr << "YAYYY TIME WAIT" << endl;
-		sleep(2*MSL_TIME_SECS);
-		(*cs).state.SetState(CLOSE);
-		break;
 	case LAST_ACK:
 		cerr << "LAST ACK BEFORE CLOSING." << endl;
 		if (IS_ACK(orgflags)){
 			connection_list.erase(cs);
 			(*cs).state.SetState(CLOSED);
 		}		
+		cerr << "CLOSED" << endl;
 	
       }
       }
@@ -530,14 +535,19 @@ int main(int argc, char *argv[])
 				case SYN_RCVD:
 					break;
 				case ESTABLISHED:
+					cerr << "In close established case" << endl;
 					(*cs).state.SetState(FIN_WAIT1);
 					SET_FIN(newflags);
+					SET_ACK(newflags);
 					seq = (*cs).state.GetLastSent();
-					seq++; //!!
+					//seq++; //!!
 					(*cs).state.SetLastSent(seq);
-					acknum = (map).state.GetLastRecvd();
+					acknum = (*cs).state.GetLastRecvd();
+					//acknum = 0;
 					(*cs).state.SetLastRecvd(acknum);
 					newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
+        				tcph=newPack.FindHeader(Headers::TCPHeader);
+					cerr << tcph << endl;
 					MinetSend(mux, newPack);
 					break;
 				case CLOSE_WAIT:
