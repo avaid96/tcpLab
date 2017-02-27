@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
   MinetHandle mux, sock;
 
   ConnectionList<TCPState> connection_list;
-  //queue<SockRequestResponse> sock_queue;  
+  queue<SockRequestResponse> SocksPending;  
 
   MinetInit(MINET_TCP_MODULE);
 
@@ -296,13 +296,14 @@ int main(int argc, char *argv[])
 				MinetSend(sock, close);
 			}
 			else if(IS_RST(orgflags)) {
+				/*
 				cerr << "Reset" << endl;
-				/*(*cs).state.SetLastSent(seq);
+				(*cs).state.SetLastSent(seq);
 				(*cs).state.SetSendRwnd(window);
 				SET_SYN(newflags);
 				SET_ACK(newflags);
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + 1, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
-				MinetSend(mux, respPacket);*/
+				MinetSend(mux, respPacket); */
 			}
 			else {
 				cerr << "we have data packet" << endl;
@@ -317,14 +318,18 @@ int main(int argc, char *argv[])
 				tempdatalen -= 4 * tempheaderlen + tcphlen;
 				
 				data = p.GetPayload().ExtractFront(tempdatalen);
-				cerr << data << endl;
+				cerr << "Data in Established: " << data << endl;
 				
 				(*cs).connection.protocol = IP_PROTO_TCP;
 				SockRequestResponse write(WRITE, (*cs).connection, data, tempdatalen, EOK);
 				MinetSend(sock, write);
+				SocksPending.push(write);
 				SET_ACK(newflags);	
 				Packet respPacket = WritePacket(c, idp, hlenp, acknum + tempdatalen, seqp, windowp, urgentpointerp, newflagsp, "", 0); 
 				MinetSend(mux, respPacket);
+				cerr << "Acknum in Established: " << acknum << endl;
+				cerr << "Tempdatalen in Established: " << tempdatalen << endl;
+				cerr << "Sum: " << acknum + tempdatalen << endl;
 				(*cs).state.SetLastRecvd(acknum + tempdatalen);
 			}
 			break;
@@ -426,6 +431,18 @@ int main(int argc, char *argv[])
 	unsigned int sending = 0;
 	switch (s.type){
 		case STATUS:
+			cerr << "Case: Status" << endl;
+			if (!SocksPending.empty()){
+				SockRequestResponse res = SocksPending.front();
+				SocksPending.pop();
+				sending = res.bytes - s.bytes;
+				if (sending != 0 ){
+					cerr << "NOT EQUAL!" << endl << endl;
+					SockRequestResponse res(WRITE, map.connection, data.ExtractBack(sending), sending, EOK);
+					MinetSend(sock, res);
+					SocksPending.push(res);
+				}
+			}
 			break;
 		case CONNECT:
 			cerr << "Connect request from application layer" << endl;
@@ -457,7 +474,8 @@ int main(int argc, char *argv[])
 			cerr << "Socket write event" << endl;
 			//GO-BACK-N SENDER SIDE
 			if ((*cs).state.GetState() == ESTABLISHED){
-				acknum = map.state.GetLastRecvd();
+				acknum = (*cs).state.GetLastRecvd();
+				cerr << "Acknum" << acknum << endl;
 				len = s.data.GetSize();
 				sending = 0;
 				gbnBuffer = (char *) malloc(TCP_MAXIMUM_SEGMENT_SIZE + 1);
@@ -465,7 +483,7 @@ int main(int argc, char *argv[])
 				MinetSend(sock, res);
 				while (len > 0){
 					memset(gbnBuffer, 0, TCP_MAXIMUM_SEGMENT_SIZE + 1);
-					seq = map.state.GetLastSent();
+					seq = (*cs).state.GetLastSent();
 					cerr << (*cs).state.GetLastSent() << endl;
 					cerr << seq << endl;
 					//Chunky Peanut Butter
@@ -492,8 +510,12 @@ int main(int argc, char *argv[])
 					unsigned int seqH = 2;
 					unsigned int &ackHP = ackH;
 					unsigned int &seqHP = seqH;
-					newPack = WritePacket(s.connection, idp, hlenp, ackHP, seqHP, windowp, urgentpointerp, newflagsp, gbnBuffer, sending); 
-					cerr << newPack << endl;
+					cerr << "Changed Acknum: " << acknum << endl;
+					cerr << "Changed Seqnum: " << seq << endl;
+					SET_ACK(newflags);
+					newPack = WritePacket(s.connection, idp, hlenp, acknum, seqp, windowp, urgentpointerp, newflagsp, gbnBuffer, sending); 
+        				TCPHeader tcph=newPack.FindHeader(Headers::TCPHeader);
+					cerr << tcph << endl;
 					MinetSend(mux, newPack);
 					(*cs).state.SetLastSent(seq+sending);
 				}
@@ -510,8 +532,8 @@ int main(int argc, char *argv[])
 				case ESTABLISHED:
 					(*cs).state.SetState(FIN_WAIT1);
 					SET_FIN(newflags);
-					seq = (map).state.GetLastSent();
-					seq++;
+					seq = (*cs).state.GetLastSent();
+					seq++; //!!
 					(*cs).state.SetLastSent(seq);
 					acknum = (map).state.GetLastRecvd();
 					(*cs).state.SetLastRecvd(acknum);
