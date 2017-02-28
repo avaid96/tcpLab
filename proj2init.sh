@@ -1,3 +1,4 @@
+trap '{echo "Hey, you stopped the setup"; exit 1;}' INT
 make clean &
 wait
 make &
@@ -15,4 +16,5 @@ cd fifos/
 chmod a+w ether2mon
 chmod a+w ether2mux
 cd ..
-sed -i '3s/.*/MINET_IPADDR=\"10.10.43.50\"/' minet.cfg
+sed -i '3s/.*/MINET_IPADDR=\"10.10.43.02\"/' minet.cfg
+
