@@ -1,0 +1,87 @@
+commit 2000716e39211009b5a7afdbdb6190a5096fea19
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Mon Feb 27 19:25:52 2017 -0600
+
+    fixed first byte consumption and active close
+
+commit 5c2befd2c290d262803d2241a4a328c6dccf3a8a
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Mon Feb 27 17:57:30 2017 -0600
+
+    active close works
+
+commit 2c85bc16c9a5dfc1322fcf6cb400c9b5c6c01861
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Mon Feb 27 12:38:33 2017 -0600
+
+    working data transfer
+
+commit e6511b9323064e8bec10dad9c9997ee2ce07e1ba
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Sun Feb 26 10:50:38 2017 -0600
+
+    FUCK YES we established active open and now doing data transfer is next
+
+commit b3fb255bcb29d42566ad391165423e2d9b8edb7a
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Fri Feb 24 19:18:05 2017 -0600
+
+    implemented client in anticipation
+
+commit ead3111a9f83ec4cb6ca58b0371501c30a88943a
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Wed Feb 22 15:52:34 2017 -0600
+
+    calling it on server side: not getting the last ack for some reason :(((((
+
+commit 866988d0ebcc90d87917a274ba457e0a5fdb062d
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Wed Feb 22 14:35:02 2017 -0600
+
+    entering close_wait
+
+commit 0ee004ebc7095b4c248010128612fcec70ef9725
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Fri Feb 17 14:54:17 2017 -0600
+
+    latest
+
+commit 5cf2009d24e21d2d863737c5923e83e372df7cec
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Thu Feb 16 20:10:42 2017 -0600
+
+    established connection and getting data packets from telnet client
+
+commit 5615f350911519216164934e719aabe56979b402
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Wed Feb 15 15:56:50 2017 -0600
+
+    3 way handshake complete, i think
+
+commit 597c09520f7cc375ea287d1b37b3c8386c0fd0f6
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Wed Feb 15 15:14:11 2017 -0600
+
+    implelented syn-synack-ack
+
+commit e5bcc8ce139d8183cf425714f056e1c86964904c
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Sun Feb 12 18:48:41 2017 -0600
+
+    listen case - send back syn ack - error in write packet call
+    
+    Signed-off-by: Avi Vaid <avaid1996@gmail.com>
+
+commit 4b2e0b272be08074d4666d75d1b6e4fdf013727f
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Sun Feb 12 17:31:30 2017 -0600
+
+    added making packet etc
+    
+    Signed-off-by: Avi Vaid <avaid1996@gmail.com>
+
+commit e58ca4dae9b51f31d91c51ef131786b52160f320
+Author: Avi Vaid <avaid1996@gmail.com>
+Date:   Thu Feb 2 16:50:43 2017 -0600
+
+    first commit
